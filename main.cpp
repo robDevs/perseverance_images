@@ -5,14 +5,15 @@
 #include <string>
 #include <iostream>
 #include <fstream>
+
+#include "key.h"
 int main(void)
 {
     //first lets get the info about the rover. Max sols, launch/land date, etc. 
     std::string url = "https://api.nasa.gov/mars-photos/api/v1/rovers/?api_key=";
+    url += key;
     printf("Fetching info about rovers...\n");
     std::string json = curl_get_string(url);
-
-    printf("base: %s\n", url);
 
     const cJSON *max_sols = NULL;
     const cJSON *launch_date = NULL;
@@ -45,7 +46,7 @@ int main(void)
             break;
         }
     }
-    printf("sols: %d\n", max_sols->valueint);
+    printf("max sols: %d\nTransforming data, please wait....\n", max_sols->valueint);
 
     //we have the needed info about the rover in question, let's start parsing it's data. 
     //data is broken up in sols since landing, and by pages of 25. 
@@ -55,8 +56,7 @@ int main(void)
     bool sol_done = false;
     
     std::string base_url = "https://api.nasa.gov/mars-photos/api/v1/rovers/Perseverance/photos?";
-    std::string key = "api_key=";
-    printf("base: %s", base_url);
+    std::string key_string = "api_key=" + key;
 
     //let's open a file to write the html to
     std::ofstream outfile;
@@ -67,6 +67,7 @@ int main(void)
         return -1;
     }
 
+    //write the html boiler plate. 
     std::string base_html = "<!DOCTYPE html>\n"
                             "<html>\n"
                             "<head>\n"
@@ -95,8 +96,10 @@ int main(void)
                             "    <h1>Perseverance Images</h1>\n"
                             "    <div class='center'>\n";
     
-    outfile << base_html.c_str();
-    for(cur_sol = max_sols->valueint; cur_sol > max_sols->valueint - 1; cur_sol--) {
+    outfile << base_html.c_str(); //output the base html
+    // start at current sol and go back five. 
+    // collect and output data from each image/page of each sol. 
+    for(cur_sol = max_sols->valueint; cur_sol > max_sols->valueint - 5; cur_sol--) {
         sol_done = false;
         cur_page = 1;
         while(sol_done == false) {
@@ -104,16 +107,17 @@ int main(void)
             std::string cur_url = base_url;
             cur_url += "sol=" + std::to_string(cur_sol);
             cur_url += "&page=" + std::to_string(cur_page);
-            cur_url += "&" + key;
+            cur_url += "&" + key_string;
             std::string cur_json = curl_get_string(cur_url);
             const cJSON *cur_data = cJSON_Parse(cur_json.c_str());
             const cJSON *photos = cJSON_GetObjectItemCaseSensitive(cur_data, "photos");
+            //if photos array is empty for this page then previous page was the last page
+            //this mean we should move onto next sol.
             if(cJSON_GetArraySize(photos) < 1) {
                 sol_done = true;
                 continue;
             }
 
-            int count = 0;
             const cJSON *photo = NULL;
             cJSON_ArrayForEach(photo, photos) {
                 const cJSON *src = cJSON_GetObjectItemCaseSensitive(photo, "img_src");
@@ -135,5 +139,6 @@ int main(void)
     outfile << base_html;
 
     outfile.close();
+    printf("Done!!");
     return 0;
 }
